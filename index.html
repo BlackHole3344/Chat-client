@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chat Test Client</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        .container {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+        #messages {
+            height: 400px;
+            border: 1px solid #ccc;
+            margin-bottom: 20px;
+            padding: 10px;
+            overflow-y: auto;
+        }
+        .message {
+            margin: 5px;
+            padding: 5px;
+            border-radius: 5px;
+        }
+        .sent {
+            background: #e3f2fd;
+            margin-left: 20%;
+        }
+        .received {
+            background: #f5f5f5;
+            margin-right: 20%;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Chat Test Client</h2>
+        
+        <!-- Connection Section -->
+        <div>
+            <input type="text" id="token" placeholder="Enter JWT token" style="width: 300px;">
+            <button onclick="connect()">Connect</button>
+            <span id="connectionStatus">Disconnected</span>
+        </div>
+
+        <!-- Chat Section -->
+        <div id="chatSection" style="display: none;">
+            <div id="messages"></div>
+            
+            <div>
+                <input type="text" id="receiverId" placeholder="Receiver ID">
+                <input type="text" id="chatId" placeholder="Chat ID">
+                <input type="text" id="message" placeholder="Type message">
+                <button onclick="sendMessage()">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+
+        const serverPort = 4000; 
+      
+
+        function connect() {
+            const token = document.getElementById('token').value;
+            
+            // Initialize socket with auth token
+            // will try to connect to server 
+            socket = io(`http://localhost:${serverPort}/chat/directmessage`, {
+                auth: { token }, //pass bearer  
+                transports: ['websocket'],
+                withCredentials: true , 
+                reconnection: false,
+                reconnectionDelay: 1000,     // Start with 1 second delay
+                reconnectionDelayMax: 5000,  // Maximum delay of 5 seconds
+                reconnectionAttempts: 5  
+            });
+
+            // Connection events
+            // listen if websocket if connection 
+            socket.on('connect', () => { // Connection established 
+                console.log('Connected to server at ' , serverPort);
+                document.getElementById('connectionStatus').textContent = 'Connected to server at ' + serverPort;    
+                document.getElementById('chatSection').style.display = 'block';
+                
+                // Send setup event
+                socket.emit('setup'); // send a setup event 
+            });
+
+            socket.on('connected', (data) => {
+                console.log('Setup completed');
+                addMessage('System', 'Setup completed');
+                addMessage('System', data.re);  
+            });
+
+            socket.on('connect_error', (error) => {
+                console.error('Connection error:', error);
+                document.getElementById('connectionStatus').textContent = 'Connection Error: ' + error.message;
+            });
+
+            // Message events , listen for messages 
+            socket.on('new_message', (message) => {
+
+                // if(data.message && data.message.content){
+                //     console.log('New message received:', data);
+                //     addMessage('Received', data.message.content);
+                // }
+
+                
+
+                addMessage('Received', message);  
+             
+                // addMessage('Received', data.message.content);
+            });
+
+            
+            socket.on('message_sent', (data) => {
+                console.log('Message sent confirmation:', data);
+                addMessage('System', 'Message sent successfully');
+            });
+
+            socket.on('message_error', (error) => {
+                console.error('Message error:', error);
+                addMessage('System', 'Error: ' + error.message);
+            });
+
+            socket.on('disconnect', () => {
+                document.getElementById('connectionStatus').textContent = 'Disconnected';
+                document.getElementById('chatSection').style.display = 'none';
+            });
+            socket.on("send_message" , (data) => {
+                console.log('New message received:', data);
+                addMessage('Received', data.message.content);
+            })
+        }
+
+        function sendMessage() {
+            const receiverId = document.getElementById('receiverId').value;
+            const chatId = document.getElementById('chatId').value;
+            const content = document.getElementById('message').value;
+
+            if (!receiverId || !chatId || !content) {
+                alert('Please fill all fields');
+                return;
+            }
+
+            console.log("recieverId", receiverId); 
+
+            socket.emit('send_message', {
+                receiverId,
+                chatId,
+                content
+            } , (reponse) => {
+                console.log('Message sent:', reponse)
+                if(reponse.message = "recieved")
+                addMessage("System" , "Message recieved by the server");
+            });
+
+            addMessage('Sent', content);
+            document.getElementById('message').value = '';
+        }
+
+        function addMessage(type, content) {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type.toLowerCase()}`;
+            messageDiv.textContent = `${type}: ${content}`;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+    </script>
+</body>
+</html>

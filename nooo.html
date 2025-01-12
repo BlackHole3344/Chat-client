@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chat Test Client</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/debug/4.3.1/debug.js"></script>
+    <style>
+        .container {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+        #messages {
+            height: 400px;
+            border: 1px solid #ccc;
+            margin-bottom: 20px;
+            padding: 10px;
+            overflow-y: auto;
+        }
+        .message {
+            margin: 5px;
+            padding: 5px;
+            border-radius: 5px;
+        }
+        .sent {
+            background: #e3f2fd;
+            margin-left: 20%;
+        }
+        .received {
+            background: #f5f5f5;
+            margin-right: 20%;
+        }
+        .error {
+            background: #ffebee;
+        }
+        .system {
+            background: #f0f4c3;
+        }
+        #debugLog {
+            height: 150px;
+            border: 1px solid #ccc;
+            margin-top: 20px;
+            padding: 10px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            background: #f8f9fa;
+        }
+        .status-connected {
+            color: green;
+            font-weight: bold;
+        }
+        .status-disconnected {
+            color: red;
+            font-weight: bold;
+        }
+        .status-error {
+            color: orange;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Chat Test Client</h2>
+        
+        <!-- Connection Section -->
+        <div>
+            <input type="text" id="token" placeholder="Enter JWT token" style="width: 300px;">
+            <button onclick="connect()" id="connectBtn">Connect</button>
+            <button onclick="disconnect()" id="disconnectBtn" style="display: none;">Disconnect</button>
+            <span id="connectionStatus" class="status-disconnected">Disconnected</span>
+        </div>
+
+        <!-- Chat Section -->
+        <div id="chatSection" style="display: none;">
+            <div id="messages"></div>
+            
+            <div>
+                <input type="text" id="receiverId" placeholder="Receiver ID">
+                <input type="text" id="chatId" placeholder="Chat ID">
+                <input type="text" id="message" placeholder="Type message">
+                <button onclick="sendMessage()">Send</button>
+            </div>
+        </div>
+
+        <!-- Debug Section -->
+        <div>
+            <h4>Debug Log</h4>
+            <div id="debugLog"></div>
+        </div>
+    </div>
+
+    <script>
+        let socket;
+        const log = debug('chat-client');
+        debug.enable('chat-client');
+
+        // Override debug's default output to also show in our debug div
+        const originalLog = console.log;
+        console.log = (...args) => {
+            originalLog.apply(console, args);
+            const debugLog = document.getElementById('debugLog');
+            const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+            debugLog.innerHTML += `<div>[${timestamp}] ${args.join(' ')}</div>`;
+            debugLog.scrollTop = debugLog.scrollHeight;
+        };
+
+        function updateConnectionStatus(status, error = null) {
+            const statusEl = document.getElementById('connectionStatus');
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+
+            statusEl.textContent = error ? `${status}: ${error}` : status;
+            statusEl.className = error ? 'status-error' : 
+                               status === 'Connected' ? 'status-connected' : 
+                               'status-disconnected';
+
+            connectBtn.style.display = status === 'Connected' ? 'none' : 'inline';
+            disconnectBtn.style.display = status === 'Connected' ? 'inline' : 'none';
+        }
+
+        function connect() {
+            const token = document.getElementById('token').value;
+            if (!token) {
+                alert('Please enter a JWT token');
+                return;
+            }
+            
+            log('Attempting connection with token...');
+            
+            // Initialize socket with auth token
+            socket = io('http://localhost:4000/chat/directmessage', {
+                auth: { token },
+                transports: ['websocket'],
+                withCredentials: true,
+                reconnection: true,
+                reconnectionDelay: 1000,
+                reconnectionDelayMax: 5000,
+                reconnectionAttempts: 5
+            });
+
+            setupSocketListeners();
+        }
+
+        function disconnect() {
+            if (socket) {
+                log('Manually disconnecting...');
+                socket.disconnect();
+            }
+        }
+
+        function setupSocketListeners() {
+            // Connection events
+            socket.on('connect', () => {
+                log('Connected to server with socket ID:', socket.id);
+                updateConnectionStatus('Connected');
+                document.getElementById('chatSection').style.display = 'block';
+                
+                // Send setup event
+                socket.emit('setup');
+            });
+
+            socket.on('connected', (data) => {
+                log('Setup completed:', data);
+                addMessage('System', 'Setup completed');
+                if (data.re) addMessage('System', data.re);
+            });
+
+            socket.on('connect_error', (error) => {
+                log('Connection error:', error.message);
+                updateConnectionStatus('Connection Error', error.message);
+            });
+
+            // Message events
+            socket.on('new_message', (message) => {
+                log('New message received:', message);
+                addMessage('Received', typeof message === 'object' ? JSON.stringify(message) : message);
+            });
+
+            socket.on('send_message', (data) => {
+                log('Send message event received:', data);
+                if (data.message && data.message.content) {
+                    addMessage('Received', data.message.content);
+                }
+            });
+
+            socket.on('message_sent', (data) => {
+                log('Message sent confirmation:', data);
+                addMessage('System', 'Message sent successfully');
+            });
+
+            socket.on('message_error', (error) => {
+                log('Message error:', error);
+                addMessage('System', 'Error: ' + (error.message || error));
+            });
+
+            socket.on('disconnect', (reason) => {
+                log('Disconnected from server. Reason:', reason);
+                updateConnectionStatus('Disconnected');
+                document.getElementById('chatSection').style.display = 'none';
+            });
+
+            // Error handling
+            socket.on('error', (error) => {
+                log('Socket error:', error);
+                addMessage('System', 'Socket error: ' + (error.message || error));
+            });
+        }
+
+        function sendMessage() {
+            const receiverId = document.getElementById('receiverId').value;
+            const chatId = document.getElementById('chatId').value;
+            const content = document.getElementById('message').value;
+
+            if (!receiverId || !chatId || !content) {
+                alert('Please fill all fields');
+                return;
+            }
+
+            log('Sending message:', { receiverId, chatId, content });
+
+            socket.emit('send_message', {
+                receiverId,
+                chatId,
+                content
+            }, (response) => {
+                log('Message send callback:', response);
+                if (response && response.message === "recieved") {
+                    addMessage("System", "Message received by the server");
+                }
+            });
+
+            addMessage('Sent', content);
+            document.getElementById('message').value = '';
+        }
+
+        function addMessage(type, content) {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type.toLowerCase()}`;
+            const timestamp = new Date().toLocaleTimeString();
+            messageDiv.textContent = `[${timestamp}] ${type}: ${content}`;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+    </script>
+</body>
+</html>

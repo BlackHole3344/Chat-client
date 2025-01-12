@@ -1,0 +1,30 @@
+{
+
+  "scripts": {
+
+    "client": "node client.js",
+
+    "dev1": "node client.js -c 3000",
+
+    "dev2": "node client.js -c 3001"
+
+  },
+
+  "devDependencies": {
+
+    "lite-server": "^2.6.1"
+
+  },
+
+  "dependencies": {
+
+    "express": "^4.21.2",
+
+    "nodemon": "^3.1.9",
+
+    "yargs": "^17.7.2"
+
+  }
+
+}
+
